@@ -1,6 +1,7 @@
 ﻿using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.DurableTask;
 using Microsoft.Extensions.Logging;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -13,17 +14,39 @@ namespace VideoProcessor
             [OrchestrationTrigger] IDurableOrchestrationContext context,
             ILogger log)
         {
-            log = context.CreateReplaySafeLogger(log);
-            var videoLocation = context.GetInput<string>();
+            string videoLocation = null;
+            string withIntroLocation = null;
+            string thumbnailLocation = null;
+            string transcodedLocation = null;
 
-            log.LogInformation("about to call transcode video activity");
-            var transcodedLocation = await context.CallActivityAsync<string>("TranscodeVideo", videoLocation);
+            try
+            {
 
-            log.LogInformation("about to call thumbnail video activity");
-            var thumbnailLocation = await context.CallActivityAsync<string>("ExtractThumbnail", transcodedLocation);
+                log = context.CreateReplaySafeLogger(log);
+                videoLocation = context.GetInput<string>();
 
-            log.LogInformation("about to call prepend video activity");
-            var withIntroLocation = await context.CallActivityAsync<string>("PrependIntro", transcodedLocation);
+                //Retry
+                log.LogInformation("about to call transcode video activity");
+                transcodedLocation = await context.CallActivityWithRetryAsync<string>(
+                    "TranscodeVideo",
+                    new RetryOptions(TimeSpan.FromSeconds(5), 4) { Handle = ex => ex is InvalidCastException },
+                    videoLocation);
+
+                log.LogInformation("about to call thumbnail video activity");
+                thumbnailLocation = await context.CallActivityAsync<string>("ExtractThumbnail", transcodedLocation);
+
+                log.LogInformation("about to call prepend video activity");
+                withIntroLocation = await context.CallActivityAsync<string>("PrependIntro", transcodedLocation);
+
+            }
+            catch (Exception e)
+            {
+                log.LogError($"Caught an error from an activity: {e.Message}");
+
+                await context.CallActivityAsync<string>(
+                    "Cleanup",
+                    new object[] { transcodedLocation, thumbnailLocation, withIntroLocation });
+            }
 
             return new
             {

@@ -45,5 +45,19 @@ namespace VideoProcessor
 
             return $"{Path.GetFileNameWithoutExtension(inputVideo)}-withintro.mp4";
         }
+
+        [FunctionName(nameof(Cleanup))]
+        public static async Task<string> Cleanup([ActivityTrigger] string[] filesToCleanUp, ILogger log)
+        {
+            foreach (var file in filesToCleanUp)
+            {
+                log.LogInformation($"Deleting {file}");
+
+                // simulate doing activity
+                await Task.Delay(1000);
+            }
+
+            return "Cleaned up successfully";
+        }
     }
 }
